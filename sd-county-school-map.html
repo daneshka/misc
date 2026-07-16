@@ -35,6 +35,34 @@
   .legend .sw i{display:block;height:11px}
   .legend .sw span{display:block;font-family:var(--mono);font-size:9px;color:var(--muted);text-align:center;margin-top:5px}
 
+  /* ---- filter panel ---- */
+  .filter{background:var(--panel);border:1px solid var(--rule);border-radius:2px;padding:13px 15px 11px;margin:0 0 12px}
+  .fhead{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:9px}
+  .presets{display:flex;gap:5px;flex-wrap:wrap}
+  .presets button{font-family:var(--mono);font-size:10px;letter-spacing:.03em;padding:4px 8px;border:1px solid var(--rule);background:transparent;color:var(--muted);border-radius:2px;cursor:pointer}
+  .presets button:hover{border-color:var(--muted);color:var(--ink)}
+  .presets button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .presets button:focus-visible{outline:2px solid var(--ink);outline-offset:1px}
+
+  .hist{display:flex;align-items:flex-end;gap:1px;height:38px;margin-bottom:2px}
+  .hist i{flex:1;background:var(--rule-soft);min-height:1px;border-radius:1px 1px 0 0;transition:background .12s}
+  .hist i.on{background:var(--accent);opacity:.55}
+
+  .slider{position:relative;height:22px;margin:0 0 2px;touch-action:none}
+  .strack{position:absolute;top:9px;left:0;right:0;height:4px;background:var(--rule-soft);border-radius:2px}
+  .srange{position:absolute;top:9px;height:4px;background:var(--accent);border-radius:2px}
+  .handle{position:absolute;top:3px;width:15px;height:15px;margin-left:-7.5px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);cursor:grab;box-shadow:0 1px 3px rgba(13,32,41,.28)}
+  .handle:active{cursor:grabbing}
+  .handle:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  .fmeta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:9px}
+  .fmeta b{color:var(--ink);font-weight:600}
+  .ftoggles{display:flex;gap:16px;flex-wrap:wrap;padding-top:9px;border-top:1px solid var(--rule-soft)}
+  .ftoggles label{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--muted);cursor:pointer}
+  .ftoggles label:hover{color:var(--ink)}
+  .ftoggles input{accent-color:var(--accent);cursor:pointer;margin:0}
+
   .stage{position:relative;background:var(--ocean);border:1px solid var(--rule);border-radius:2px;overflow:hidden}
   svg{display:block;width:100%;height:auto;touch-action:none;cursor:grab}
   svg.grabbing{cursor:grabbing}
@@ -119,6 +147,31 @@
     </div>
   </div>
 
+  <div class="filter">
+    <div class="fhead">
+      <span class="ctl-label" style="margin:0">Filter by score</span>
+      <div class="presets" id="presets">
+        <button data-p="all" aria-pressed="true">All</button>
+        <button data-p="90" aria-pressed="false">Top 10%</button>
+        <button data-p="75" aria-pressed="false">Top 25%</button>
+        <button data-p="50" aria-pressed="false">Above median</button>
+        <button data-p="b25" aria-pressed="false">Bottom 25%</button>
+      </div>
+    </div>
+    <div class="hist" id="hist" aria-hidden="true"></div>
+    <div class="slider" id="slider">
+      <div class="strack"></div>
+      <div class="srange" id="srange"></div>
+      <div class="handle" id="hLo" tabindex="0" role="slider" aria-label="Minimum score" aria-valuemin="0" aria-valuemax="100"></div>
+      <div class="handle" id="hHi" tabindex="0" role="slider" aria-label="Maximum score" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <div class="fmeta"><span id="frange"></span><span id="fcount"></span></div>
+    <div class="ftoggles">
+      <label><input type="checkbox" id="tAlt"> Hide continuation &amp; alternative</label>
+      <label><input type="checkbox" id="tChtr"> Hide charters</label>
+    </div>
+  </div>
+
   <div class="stage" id="stage">
     <svg id="map" viewBox="0 0 1000 720" role="img" aria-label="Map of San Diego County schools by 2025 test results"></svg>
     <div class="zoomctl">
@@ -134,6 +187,7 @@
   <div class="tblwrap">
     <table id="tbl">
       <thead><tr>
+        <th data-k="r" class="num">#<span class="ar"></span></th>
         <th data-k="n">School <span class="ar"></span></th>
         <th data-k="d" class="hide-sm">District <span class="ar"></span></th>
         <th data-k="s">Score <span class="ar"></span></th>
@@ -253,6 +307,54 @@ function num(s){return level==='a'?s.an:s[level+'n']}
 function has(s){return val(s)!=null}
 function matches(s){return !query || (s.n+" "+s.d).toLowerCase().indexOf(query)>-1}
 
+var lo=0,hi=100,hideAlt=false,hideChtr=false,RANK={},NLV=0;
+function togglesOK(s){return !(hideAlt&&isAlt(s.n)) && !(hideChtr&&s.c)}
+function pass(s){if(!has(s)) return false; var v=val(s); return v>=lo&&v<=hi&&togglesOK(s)}
+function computeRanks(){
+  var v=S.filter(has).sort(function(a,b){return val(b)-val(a)});
+  RANK={}; NLV=v.length;
+  v.forEach(function(s,i){RANK[s.cds]=i+1});
+}
+function pool(){return S.filter(function(s){return has(s)&&togglesOK(s)})}
+function pctile(p){
+  var v=pool().map(val).sort(function(a,b){return a-b});
+  if(!v.length) return 0;
+  return Math.round(v[Math.floor((p/100)*(v.length-1))]);
+}
+function drawHist(){
+  var bins=[],i;
+  for(i=0;i<20;i++) bins.push(0);
+  pool().forEach(function(s){bins[Math.min(19,Math.floor(val(s)/5))]++});
+  var mx=Math.max.apply(null,bins)||1,h="";
+  for(i=0;i<20;i++){
+    var b0=i*5,b1=b0+5,on=(b1>lo&&b0<hi);
+    h+='<i class="'+(on?'on':'')+'" style="height:'+Math.max(1,Math.round(bins[i]/mx*38))+'px"></i>';
+  }
+  document.getElementById("hist").innerHTML=h;
+}
+function layoutSlider(){
+  var hLo=document.getElementById("hLo"),hHi=document.getElementById("hHi"),sr=document.getElementById("srange");
+  hLo.style.left=lo+"%"; hHi.style.left=hi+"%";
+  sr.style.left=lo+"%"; sr.style.width=(hi-lo)+"%";
+  hLo.setAttribute("aria-valuenow",lo); hHi.setAttribute("aria-valuenow",hi);
+  document.getElementById("frange").innerHTML='<b>'+lo+'%</b> \u2013 <b>'+hi+'%</b> meeting standard';
+}
+function syncPresets(){
+  document.querySelectorAll("#presets button").forEach(function(b){
+    var p=b.dataset.p,on;
+    if(p==='all') on=(lo===0&&hi===100);
+    else if(p==='b25') on=(lo===0&&hi===pctile(25)&&hi!==100);
+    else on=(hi===100&&lo===pctile(+p)&&lo!==0);
+    b.setAttribute("aria-pressed",String(on));
+  });
+}
+function updateCount(){
+  document.getElementById("fcount").innerHTML='<b>'+S.filter(pass).length+'</b> of '+NLV+' schools';
+}
+function updateFilter(){
+  layoutSlider(); drawHist(); updateCount(); syncPresets(); drawOverlay(); drawTable(); updateCaption();
+}
+
 /* ---------- camera ---------- */
 function clampT(){tx=Math.min(0,Math.max(W-k*W,tx)); ty=Math.min(0,Math.max(H-k*H,ty));}
 function applyCam(){
@@ -275,7 +377,7 @@ function radius(s){
   return (1.5+Math.sqrt(n)/8.5)*(0.62+0.38*Math.min(k,7)/7);
 }
 function drawOverlay(){
-  var h="", vis=S.filter(has);
+  var h="", vis=S.filter(pass);
   // district name labels under the dots
   if(k>=2.4){
     land.forEach(function(f){
@@ -301,17 +403,21 @@ function drawOverlay(){
   });
   ovEl.innerHTML=h;
 }
+function updateCaption(){
+  var lbl={a:"All tested grades (3\u20138 and 11) pooled.",e:"Grades 3\u20135 only.",
+           m:"Grades 6\u20138 only.",h:"Grade 11 only."};
+  var n=S.filter(pass).length, extra=(n<NLV)?(" Filtered to "+n+" of "+NLV+"."):(" "+n+" schools shown.");
+  caption.textContent=lbl[level]+extra+" Scroll or pinch to zoom, drag to pan. Dot size = students tested.";
+}
 function render(){
+  computeRanks();
   var parts=['<rect width="'+W+'" height="'+H+'" fill="#d5e4ec"/>','<g id="cam">'];
   land.forEach(function(f){ parts.push('<path class="land" d="'+f.d+'"/>'); });
   parts.push('</g><g id="ov"></g>');
   svg.innerHTML=parts.join("");
   camEl=document.getElementById("cam"); ovEl=document.getElementById("ov");
   applyCam();
-  var lbl={a:"All tested grades (3\u20138 and 11) pooled.",e:"Grades 3\u20135 only.",
-           m:"Grades 6\u20138 only.",h:"Grade 11 only."};
-  var vis=S.filter(has);
-  caption.textContent=lbl[level]+" "+vis.length+" schools shown. Scroll or pinch to zoom, drag to pan. Dot size = students tested.";
+  layoutSlider(); drawHist(); updateCount(); syncPresets(); updateCaption();
   drawTable();
 }
 (function legend(){
@@ -327,6 +433,7 @@ function showTip(s,cx,cy){
   var v=val(s);
   var h='<div class="tname">'+esc(s.n)+'</div><div class="tdist">'+esc(s.d)+(s.c?' &middot; charter':'')+'</div>';
   h+='<div class="trow big"><span>Meeting standard</span><b style="color:'+ramp(v)+'">'+v.toFixed(0)+'%</b></div>';
+  h+='<div class="trow"><span>County rank</span><b>#'+RANK[s.cds]+' <span style="color:#6d8894">of '+NLV+'</span></b></div>';
   h+='<div class="trow"><span>Students tested</span><b>'+num(s).toLocaleString()+'</b></div>';
   var parts=[];
   if(s.e!=null) parts.push(['Grades 3\u20135',s.e,s.en]);
@@ -395,10 +502,12 @@ document.getElementById("zreset").addEventListener("click",function(){k=1;tx=0;t
 
 /* ---------- table ---------- */
 function drawTable(){
-  var rows=S.filter(function(s){return has(s)&&matches(s)});
+  var rows=S.filter(function(s){return pass(s)&&matches(s)});
   rows.sort(function(a,b){
     var x,y;
-    if(sortKey==='s'){x=val(a);y=val(b)} else if(sortKey==='sn'){x=num(a);y=num(b)}
+    if(sortKey==='s'){x=val(a);y=val(b)}
+    else if(sortKey==='sn'){x=num(a);y=num(b)}
+    else if(sortKey==='r'){x=RANK[a.cds];y=RANK[b.cds]}
     else {x=a[sortKey];y=b[sortKey]}
     if(x==null&&y==null) return 0;
     if(x==null) return 1;
@@ -409,7 +518,8 @@ function drawTable(){
   var h="";
   rows.forEach(function(s){
     var v=val(s), c=ramp(v);
-    h+='<tr data-i="'+s.cds+'"><td class="sname">'+esc(s.n)+(s.c?'<span class="tag">CHTR</span>':'')+
+    h+='<tr data-i="'+s.cds+'"><td class="num sdist">'+RANK[s.cds]+'</td>'+
+       '<td class="sname">'+esc(s.n)+(s.c?'<span class="tag">CHTR</span>':'')+
        (isAlt(s.n)?'<span class="tag">ALT</span>':'')+'</td>'+
        '<td class="hide-sm sdist">'+esc(s.d)+'</td>'+
        '<td><span class="pchip" style="background:'+c+';color:'+readable(c)+'">'+v.toFixed(0)+'%</span></td>'+
@@ -431,7 +541,7 @@ function drawTable(){
 document.querySelectorAll("#tbl thead th").forEach(function(th){
   th.tabIndex=0;
   function go(){var kk=th.dataset.k;
-    if(kk===sortKey) sortDir*=-1; else {sortKey=kk; sortDir=(kk==='n'||kk==='d')?1:-1}
+    if(kk===sortKey) sortDir*=-1; else {sortKey=kk; sortDir=(kk==='n'||kk==='d'||kk==='r')?1:-1}
     drawTable();}
   th.addEventListener("click",go);
   th.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});
@@ -447,6 +557,54 @@ document.getElementById("q").addEventListener("input",function(e){
   clearTimeout(qt); var v=e.target.value.trim().toLowerCase();
   qt=setTimeout(function(){query=v; drawOverlay(); drawTable();},160);
 });
+
+/* ---------- score filter ---------- */
+var sl=document.getElementById("slider"), drag=null;
+function pctFromX(cx){
+  var r=sl.getBoundingClientRect();
+  if(!r.width) return 0;
+  return Math.max(0,Math.min(100,Math.round((cx-r.left)/r.width*100)));
+}
+function moveHandle(p){
+  if(drag==='lo') lo=Math.min(p,hi); else hi=Math.max(p,lo);
+  updateFilter();
+}
+sl.addEventListener("pointerdown",function(e){
+  var p=pctFromX(e.clientX);
+  if(e.target.id==='hLo') drag='lo';
+  else if(e.target.id==='hHi') drag='hi';
+  else drag=(Math.abs(p-lo)<=Math.abs(p-hi))?'lo':'hi';
+  try{sl.setPointerCapture(e.pointerId)}catch(_){}
+  moveHandle(p);
+});
+sl.addEventListener("pointermove",function(e){ if(drag) moveHandle(pctFromX(e.clientX)); });
+sl.addEventListener("pointerup",function(){drag=null});
+sl.addEventListener("pointercancel",function(){drag=null});
+["hLo","hHi"].forEach(function(id,i){
+  document.getElementById(id).addEventListener("keydown",function(e){
+    var d=0;
+    if(e.key==="ArrowLeft"||e.key==="ArrowDown") d=-1;
+    else if(e.key==="ArrowRight"||e.key==="ArrowUp") d=1;
+    else if(e.key==="PageDown") d=-10;
+    else if(e.key==="PageUp") d=10;
+    else if(e.key==="Home") d=-100;
+    else if(e.key==="End") d=100;
+    else return;
+    e.preventDefault();
+    if(i===0) lo=Math.max(0,Math.min(hi,lo+d)); else hi=Math.min(100,Math.max(lo,hi+d));
+    updateFilter();
+  });
+});
+document.getElementById("presets").addEventListener("click",function(e){
+  var b=e.target.closest("button"); if(!b) return;
+  var p=b.dataset.p;
+  if(p==='all'){lo=0;hi=100}
+  else if(p==='b25'){lo=0;hi=pctile(25)}
+  else {lo=pctile(+p);hi=100}
+  updateFilter();
+});
+document.getElementById("tAlt").addEventListener("change",function(e){hideAlt=e.target.checked; updateFilter()});
+document.getElementById("tChtr").addEventListener("change",function(e){hideChtr=e.target.checked; updateFilter()});
 
 render();
 })();
